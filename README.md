@@ -40,7 +40,7 @@ A sophisticated, automated pipeline that assembles installable Android applicati
 
 ### 📱 Supported Apps & Architectures
 
-The full list of supported apps lives in [`patch-config.json`](patch-config.json) (95 apps and growing). Each app can target `arm64-v8a`, `armeabi-v7a`, and/or `universal` builds, configured in [`arch-config.json`](arch-config.json).
+The full list of supported apps lives in [`patch-config.json`](patch-config.json) (16 apps configured). Each app can target `arm64-v8a`, `armeabi-v7a`, and/or `universal` builds, configured in [`arch-config.json`](arch-config.json).
 
 *( Legend: ✅ = Available / ❌ = Not configured )*
 
@@ -233,7 +233,7 @@ python -m src
 
 * **Schedule:** Runs daily at 06:00 UTC.
 * **Function:** Iterates through all configured apps and architectures.
-* **Output:** Refreshed build outputs for the configured apps.
+* **Output:** Publishes rebuilt APKs and `manifest.json` to GitHub Releases (tag `latest`, default) or GitLab.
 
 ### Manual Build (`manual-patch.yml`)
 
@@ -242,7 +242,7 @@ python -m src
 * Target specific apps.
 * Target specific architectures.
 * Force specific APK versions.
-* Option to update the public release or just build artifacts.
+* Option to update the GitHub/GitLab release or just build artifacts.
 
 
 

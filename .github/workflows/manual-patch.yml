@@ -35,6 +35,14 @@ on:
         required: true
         type: boolean
         default: true
+      release_platform:
+        description: 'Release platform'
+        required: false
+        type: choice
+        options:
+          - github
+          - gitlab
+        default: 'github'
 
 jobs:
   manual-patch:
@@ -136,12 +144,105 @@ jobs:
           name: manual-apk-${{ inputs.app_name }}-${{ inputs.architecture }}
           path: "*.apk"
       
+      - name: Check Existing GitHub Release
+        if: ${{ inputs.replace_in_release == true && (inputs.release_platform == 'github' || inputs.release_platform == '') }}
+        id: check-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view latest >/dev/null 2>&1; then
+            echo "✅ Release 'latest' exists"
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "❌ Release 'latest' does not exist"
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update GitHub Release
+        if: ${{ inputs.replace_in_release == true && (inputs.release_platform == 'github' || inputs.release_platform == '') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔄 Updating GitHub release..."
+
+          if [ "${{ steps.check-release.outputs.release_exists }}" = "true" ]; then
+            echo "⬆️ Uploading new assets (clobbering existing)..."
+            gh release upload latest *.apk --clobber
+
+            : > keep_apks.txt
+            for apk in *.apk; do
+              [ -f "$apk" ] || continue
+              echo "$apk" >> keep_apks.txt
+            done
+            python scripts/cleanup_old_apks.py --release latest --keep-file keep_apks.txt
+          else
+            echo "🚀 Creating new release..."
+            gh release create "latest" \
+              --title "Morphe APKs - $(date +'%Y-%m-%d %H:%M')" \
+              --notes "Initial release" \
+              *.apk \
+              --latest
+          fi
+
+          echo "✅ Release assets updated successfully!"
+
+      - name: Update GitHub Release Notes
+        if: ${{ inputs.replace_in_release == true && (inputs.release_platform == 'github' || inputs.release_platform == '') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view latest --json assets --jq '.assets[].name' > current_assets.txt 2>/dev/null || touch current_assets.txt
+          
+          cat > release_notes.md << 'EOF'
+          # Morphe APKs
+          
+          ## 📱 Available Apps
+          EOF
+          
+          sort -u current_assets.txt | while read filename; do
+            [ -n "$filename" ] || continue
+            echo "- $filename" >> release_notes.md
+          done
+          
+          cat >> release_notes.md << EOF
+          
+          ---
+          
+          **Last Update:** $(date)
+          **Updated App:** ${{ inputs.app_name }}
+          **Architecture:** ${{ inputs.architecture }}
+          **Source:** ${{ inputs.source }}
+          
+          Auto-updates daily at 6 AM UTC.
+          EOF
+
+          gh release edit latest \
+            --title "Morphe APKs - $(date +'%Y-%m-%d %H:%M')" \
+            --notes-file release_notes.md
+
+      - name: Show GitHub Download Links
+        if: ${{ inputs.replace_in_release == true && (inputs.release_platform == 'github' || inputs.release_platform == '') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_url=$(gh release view latest --json url --jq .url 2>/dev/null || echo "")
+          echo "🔗 Updated Release URL: $release_url"
+          echo ""
+          echo "📦 Direct APK links:"
+          for apk in *.apk; do
+            echo "  - $release_url/download/$apk"
+          done
+
       - name: Install Publisher Dependencies
-        if: ${{ inputs.replace_in_release == true }}
+        if: ${{ inputs.replace_in_release == true && inputs.release_platform == 'gitlab' }}
         run: pip install requests
 
       - name: Publish to GitLab Releases
-        if: ${{ inputs.replace_in_release == true }}
+        if: ${{ inputs.replace_in_release == true && inputs.release_platform == 'gitlab' }}
         env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
           GITLAB_PROJECT_ID: "87288318"
@@ -160,7 +261,7 @@ jobs:
         if: ${{ inputs.replace_in_release == true }}
         run: |
           count=$(ls -1 *.apk 2>/dev/null | wc -l)
-          echo "Published $count APK(s) to the release."
+          echo "Published $count APK(s) to the release (${{ inputs.release_platform || 'github' }})."
 
       - name: Cleanup Version Override
         if: ${{ inputs.version != '' && always() }}
